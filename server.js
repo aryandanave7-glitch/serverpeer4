@@ -53,6 +53,22 @@ function normKey(k){ return (typeof k === 'string') ? k.replace(/\s+/g,'') : k; 
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
+  // --- START: Presence System ---
+  socket.on('check-online-status', (contactKeys, callback) => {
+    if (!Array.isArray(contactKeys)) return;
+
+    const onlineKeys = Object.keys(userSockets);
+    const onlineFriends = contactKeys.filter(key => onlineKeys.includes(normKey(key)));
+
+    if (socket.data.pubKey) {
+      console.log(`💡 Status check for ${socket.data.pubKey.slice(0,12)}... Found ${onlineFriends.length} friends online.`);
+    }
+
+    // Use a callback to send the response directly to the requester
+    callback(onlineFriends); 
+  });
+  // --- END: Presence System ---
+
   // Handle client registration
   socket.on("register", (pubKey) => {
     if (isRateLimited(socket)) {
@@ -64,6 +80,8 @@ io.on("connection", (socket) => {
     userSockets[key] = socket.id;
     socket.data.pubKey = key; // Store key on socket for later cleanup
     console.log(`🔑 Registered: ${key.slice(0,12)}... -> ${socket.id}`);
+
+    socket.broadcast.emit('friend-online', { pubKey: key });
   });
 
   // Handle direct connection requests
@@ -144,8 +162,9 @@ socket.on("call-ended", ({ to, from }) => {
 
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
-    // Clean up the user mapping on disconnect
     if (socket.data.pubKey) {
+      // Announce BEFORE deleting, so we still know who it was
+      socket.broadcast.emit('friend-offline', { pubKey: socket.data.pubKey });
       delete userSockets[socket.data.pubKey];
       console.log(`🗑️ Unregistered: ${socket.data.pubKey.slice(0, 12)}...`);
     }
